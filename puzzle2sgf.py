@@ -2,12 +2,13 @@
 import requests
 import os
 import time
+import re
 
-downloadWholeCollection =  False
+downloadWholeCollection =  True
 # if False, only the specified puzzle is downloaded
 # if True, all problems of the specified puzzle's collection are downloaded
 
-puzzleNumber = 6544
+puzzleNumber = 10600
 # the puzzle id taken from the puzzle URL
 
 skipAuthentication = True
@@ -119,6 +120,45 @@ def authenticate():
     response = requests.post(url, data={'username' : username, 'password' : password})
     return response.cookies
 
+def safe_fs_name(s: str, replacement: str = "_", max_len: int = 180) -> str:
+    """
+    Sanitize a string to be safe as a file/folder name.
+    - Replace path separators like '/' and '\\'
+    - Remove control characters (newlines, tabs, etc.)
+    - Trim leading/trailing whitespace and trailing dots (Windows-friendly)
+    - Collapse repeated whitespace
+    - Fallback to 'untitled' if empty
+    """
+    if s is None:
+        return "untitled"
+
+
+    s = str(s)
+
+
+    # Replace control characters (including \n, \r, \t) with underscore
+    s = re.sub(r"[\x00-\x1f\x7f]+", " ", s)
+
+
+    # Replace characters that are dangerous/invalid on common filesystems
+    s = re.sub(r'[\\/:"*?<>|]+', replacement, s)
+
+
+    # Collapse repeated whitespace
+    s = re.sub(r"\s+", " ", s)
+
+
+    # Trim (and remove trailing dots for Windows compatibility)
+    s = s.strip().strip(".")
+
+
+    # Prevent overly long names (leave room for extension)
+    if len(s) > max_len:
+        s = s[:max_len].rstrip()
+
+
+    return s or "untitled"
+
 cookies = [] if skipAuthentication else authenticate()
 if downloadWholeCollection:
     collectionUrl = 'https://online-go.com/api/v1/puzzles/'  + str(puzzleNumber) + '/collection_summary'
@@ -131,7 +171,9 @@ if downloadWholeCollection:
     collectionFolder = os.getcwd() + '/' + collectionName
     os.mkdir(collectionFolder)
     os.chdir(collectionFolder)
-with open(responseJSON['name'] + '.sgf', 'w', encoding="utf-8") as file:
+
+puzzle_name = safe_fs_name(responseJSON["name"])
+with open(puzzle_name + '.sgf', 'w', encoding="utf-8") as file:
     writePuzzle(file, responseJSON['puzzle'])
 if downloadWholeCollection:
     for puzzle in collection:
@@ -139,5 +181,6 @@ if downloadWholeCollection:
             time.sleep(5.0)
             puzzleUrl = 'https://online-go.com/api/v1/puzzles/' + str(puzzle['id'])
             puzzleJSON = requests.get(puzzleUrl, cookies=cookies).json()['puzzle']
-            with open(puzzle['name'] + '.sgf', 'w', encoding="utf-8") as file:
+            fn = safe_fs_name(puzzle['name']) + '.sgf'
+            with open(fn, 'w', encoding="utf-8") as file:
                 writePuzzle(file, puzzleJSON)
